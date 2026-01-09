@@ -22,8 +22,8 @@ LOG_FILE = "changes.log"
 
 # 🔌 ПРОКСІ (якщо потрібно)
 PROXIES = {
-     "http": "http://login:pass@ip:port",
-     "https": "http://login:pass@ip:port",
+     "http": "http://zlkvzpyе-1:lttxslpl8y49@p.webshare.io:80",
+     "https": "http://zlkvzpyе-1:lttxslpl8y49@p.webshare.io:80",
 }
 
 last_html_table = "<h2>Немає даних...</h2>"
