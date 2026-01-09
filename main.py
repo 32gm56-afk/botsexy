@@ -12,8 +12,8 @@ import random
 URL = "https://price.csgetto.love/"
 CHECK_INTERVAL = 35
 
-BOT_TOKEN = os.environ.get("8134393467:AAHRcOjVFiy8RTDWSXt3y3u_SDQwYIssK68")
-CHAT_ID = os.environ.get("-4840038262")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
 
 DATA_FILE = "data.json"
 STATE_FILE = "state.json"
