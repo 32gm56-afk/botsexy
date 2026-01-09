@@ -34,8 +34,10 @@ PROXY_LIST = [
     "http://zlkvzpye-10:lttxslpl8y49@p.webshare.io:80",
 ]
 
+last_html_table = "<h2>Немає даних...</h2>"
+
 # ==================================================
-# LOGGING (HUMAN-READABLE)
+# LOGGING
 # ==================================================
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -45,22 +47,14 @@ def log(msg):
 # TELEGRAM
 # ==================================================
 def send_telegram(text):
-    log("📲 Підготовка до відправки повідомлення в Telegram.")
     try:
-        r = requests.post(
+        requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": text,
-                "parse_mode": "HTML"
-            },
+            json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
             timeout=15
         )
-        log(f"📲 Telegram відповів статусом {r.status_code}.")
-        if r.text:
-            log(f"📲 Відповідь Telegram: {r.text}")
     except Exception as e:
-        log(f"❌ Помилка Telegram: {e}")
+        log(f"❌ Telegram error: {e}")
 
 def format_telegram_message(name, old_price, new_price, qty, type_msg):
     return (
@@ -70,7 +64,7 @@ def format_telegram_message(name, old_price, new_price, qty, type_msg):
     )
 
 # ==================================================
-# PRICE ROUND (ORIGINAL LOGIC)
+# PRICE ROUND (ORIGINAL)
 # ==================================================
 def round_price(p):
     if p < 0.009:
@@ -86,11 +80,10 @@ def round_price(p):
 # PARSER WITH PROXY FALLBACK
 # ==================================================
 def parse_page():
-    log("🔍 Починаю парсинг сайту з цінами.")
     last_error = None
 
     for idx, proxy in enumerate(PROXY_LIST, start=1):
-        log(f"🌍 [{idx}/{len(PROXY_LIST)}] Пробую проксі: {proxy.split('@')[0]}")
+        log(f"🌍 [{idx}/{len(PROXY_LIST)}] Пробую проксі")
 
         try:
             r = requests.get(
@@ -100,18 +93,14 @@ def parse_page():
                 headers={"User-Agent": "Mozilla/5.0"}
             )
 
-            log(f"🌐 HTTP статус: {r.status_code}")
-
             if r.status_code != 200:
                 last_error = f"HTTP {r.status_code}"
-                log("⚠️ Статус не 200 — пробую наступний проксі.")
                 continue
 
             soup = BeautifulSoup(r.text, "html.parser")
             items = {}
 
             tables = soup.find_all("table")
-            log(f"📄 Знайдено таблиць: {len(tables)}.")
 
             for table in tables:
                 rows = table.find_all("tr")[1:]
@@ -135,52 +124,79 @@ def parse_page():
 
                     items[name] = {"price_real": price, "qty": qty}
 
-            log(
-                f"✅ Парсинг успішний через проксі #{idx}. "
-                f"Пропаршено предметів: {len(items)}."
-            )
+            log(f"✅ Парсинг успішний. Предметів: {len(items)}")
             return items
 
         except Exception as e:
             last_error = str(e)
-            log(f"❌ Проксі #{idx} не підійшов: {e}")
+            log(f"❌ Проксі не підійшов: {e}")
 
-    raise Exception(f"❌ ЖОДЕН ПРОКСІ НЕ СПРАЦЮВАВ. Остання помилка: {last_error}")
+    raise Exception(f"❌ Жоден проксі не спрацював: {last_error}")
 
 # ==================================================
-# STATE LOAD / SAVE
+# HTML TABLE (ORIGINAL LOGIC)
 # ==================================================
-def load_json(path):
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+def build_html_table(changes):
+    if not changes:
+        return "<h2>Змін не знайдено.</h2>"
 
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    non_zero = [c for c in changes if float(c["diff"]) != 0]
+    zero = [c for c in changes if float(c["diff"]) == 0]
+
+    non_zero.sort(key=lambda x: abs(float(x["diff"])), reverse=True)
+    sorted_changes = non_zero + zero
+
+    html = """
+    <h2>Зміни за останню перевірку</h2>
+    <table border="1" cellspacing="0" cellpadding="6">
+        <tr>
+            <th>Назва</th>
+            <th>Ціна</th>
+            <th>Кількість</th>
+            <th>Зміна (%)</th>
+        </tr>
+    """
+
+    for c in sorted_changes:
+        html += f"""
+        <tr>
+            <td>{c['name']}</td>
+            <td>{c['price_real']}</td>
+            <td>{c['qty']}</td>
+            <td>{c['diff']}%</td>
+        </tr>
+        """
+
+    html += "</table>"
+    return html
 
 # ==================================================
 # MAIN LOOP (ORIGINAL LOGIC)
 # ==================================================
 def check_loop():
-    log("🧵 Фоновий потік перевірки цін запущено.")
+    global last_html_table
 
-    state = load_json(STATE_FILE)
-    if state:
-        log("ℹ️ Завантажено існуючі baseline значення.")
-    else:
-        log("ℹ️ Baseline відсутній — буде створено при першому проході.")
+    prev_data = {}
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            prev_data = json.load(f)
+
+    state = {}
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            state = json.load(f)
 
     while True:
-        log("🔁 Починаю новий цикл перевірки.")
+        log("🔁 Починаю новий цикл перевірки")
 
         try:
             current = parse_page()
         except Exception as e:
-            log(f"❌ Парсинг повністю провалився: {e}")
+            log(f"❌ Парсинг не вдався: {e}")
             time.sleep(CHECK_INTERVAL)
             continue
+
+        changes = []
 
         for name, item in current.items():
             price_real = item["price_real"]
@@ -188,12 +204,10 @@ def check_loop():
 
             price_rounded = round_price(price_real)
             if price_rounded is None:
-                log(f"ℹ️ {name}: ціна надто мала — пропущено.")
                 continue
 
             if name not in state:
                 state[name] = {"baseline": price_rounded}
-                log(f"🆕 {name}: перше виявлення. Baseline = {price_rounded}")
                 continue
 
             baseline = state[name]["baseline"]
@@ -202,93 +216,76 @@ def check_loop():
 
             if abs(change_percent) >= 30 and abs(abs_diff) >= 0.008:
                 msg_type = "Підвищення" if change_percent > 0 else "Падіння"
-                log(
-                    f"🚨 {name}: значна зміна "
-                    f"({baseline} → {price_rounded}, {change_percent:.2f}%)."
-                )
                 send_telegram(
                     format_telegram_message(
                         name, baseline, price_rounded, qty, msg_type
                     )
                 )
                 state[name]["baseline"] = price_rounded
-                log(f"✅ Baseline для {name} оновлено.")
-            else:
-                log(
-                    f"ℹ️ {name}: зміна {change_percent:.2f}% "
-                    f"не відповідає умовам — ігнорується."
+
+            # --- TABLE LOGIC (ORIGINAL) ---
+            if name in prev_data:
+                old_price = prev_data[name]["price_real"]
+                diff_percent = (
+                    ((price_real - old_price) / old_price) * 100
+                    if old_price > 0 else 0
                 )
 
-        save_json(DATA_FILE, current)
-        save_json(STATE_FILE, state)
-        log("💾 data.json та state.json оновлено.")
+                changes.append({
+                    "name": name,
+                    "price_real": price_real,
+                    "qty": qty,
+                    "diff": f"{diff_percent:.2f}"
+                })
 
-        log(f"⏳ Очікую {CHECK_INTERVAL} секунд до наступної перевірки.")
+        last_html_table = build_html_table(changes)
+
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2, ensure_ascii=False)
+
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+
+        prev_data = current
+        log("💾 Дані оновлено, очікую наступний цикл")
+
         time.sleep(CHECK_INTERVAL)
 
 # ==================================================
-# FLASK WEB (TABLE VIEW)
+# FLASK WEB
 # ==================================================
 app = Flask(__name__)
 
-def build_html_table():
-    if not os.path.exists(DATA_FILE):
-        return "<h2>Дані ще не зібрані</h2>"
-
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    rows = []
-    for name, item in sorted(data.items()):
-        rows.append(
-            f"<tr><td>{name}</td><td>{item['price_real']}</td><td>{item['qty']}</td></tr>"
-        )
-
-    return f"""
-    <h2>Останні пропарсені дані</h2>
-    <table border="1" cellpadding="6" cellspacing="0">
-        <tr>
-            <th>Назва</th>
-            <th>Ціна</th>
-            <th>Кількість</th>
-        </tr>
-        {''.join(rows)}
-    </table>
-    """
-
 @app.route("/")
 def home():
-    return """
+    return f"""
     <html>
     <head>
         <meta charset="utf-8">
-        <title>CSGETTO Parser</title>
+        <title>CSGETTO</title>
         <script>
-            async function reloadTable() {
+            async function reloadTable() {{
                 const r = await fetch('/table');
                 document.getElementById('table').innerHTML = await r.text();
-            }
+            }}
             setInterval(reloadTable, 30000);
             window.onload = reloadTable;
         </script>
     </head>
     <body>
-        <h1>CSGETTO Price Monitor</h1>
-        <div id="table">Завантаження...</div>
+        <div id="table">{last_html_table}</div>
     </body>
     </html>
     """
 
 @app.route("/table")
 def table():
-    return build_html_table()
+    return last_html_table
 
 # ==================================================
 # START
 # ==================================================
 if __name__ == "__main__":
-    log("🚀 Сервіс запущено. Ініціалізація компонентів.")
+    log("🚀 Сервіс запущено")
     threading.Thread(target=check_loop, daemon=True).start()
-    log("🧵 Фоновий потік перевірки запущено.")
-
     app.run(host="0.0.0.0", port=PORT)
