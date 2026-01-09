@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 import random
 
-# ================= CONFIG =================
+# ================== CONFIG ==================
 URL = "https://price.csgetto.love/"
 CHECK_INTERVAL = 35
 
@@ -17,7 +17,6 @@ CHAT_ID = os.environ.get("-4840038262")
 
 DATA_FILE = "data.json"
 STATE_FILE = "state.json"
-LOG_FILE = "changes.log"
 
 PROXY_LIST = [
     "http://zlkvzpye-1:lttxslpl8y49@p.webshare.io:80",
@@ -25,38 +24,25 @@ PROXY_LIST = [
     "http://zlkvzpye-3:lttxslpl8y49@p.webshare.io:80",
 ]
 
-last_html_table = "<h2>Немає даних...</h2>"
-
-# ================= LOG =================
+# ================== LOG ==================
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
 
-# ================= TELEGRAM =================
+# ================== TELEGRAM ==================
 def send_telegram(text):
-    log("📲 Telegram: sending message")
+    log("📲 Надсилаю повідомлення в Telegram.")
     try:
         r = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": CHAT_ID,
-                "text": text,
-                "parse_mode": "HTML"
-            },
+            json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"},
             timeout=15
         )
-        log(f"📲 Telegram status: {r.status_code}")
+        log(f"✅ Telegram відповів статусом {r.status_code}.")
     except Exception as e:
-        log(f"❌ Telegram error: {e}")
+        log(f"❌ Помилка відправки Telegram: {e}")
 
-def format_telegram_message(name, old_price, new_price, qty, type_msg):
-    return (
-        f"<code>{name}</code>\n"
-        f"{type_msg} ціни: {old_price} → {new_price}\n"
-        f"Кількість: {qty}"
-    )
-
-# ================= PRICE ROUND (ORIGINAL) =================
+# ================== PRICE ROUND (ORIGINAL) ==================
 def round_price(p):
     if p < 0.009:
         return None
@@ -65,30 +51,31 @@ def round_price(p):
     base = (p_times_1000 // 10) * 10
     if last_digit >= 9:
         base += 10
-    return base / 1000.0
+    return base / 1000
 
-# ================= PROXY =================
+# ================== PROXY ==================
 def get_proxy():
     proxy = random.choice(PROXY_LIST)
-    log(f"🌍 Using proxy: {proxy}")
+    log(f"🌍 Обрано проксі для запиту: {proxy.split('@')[0]}")
     return {"http": proxy, "https": proxy}
 
-# ================= PARSER =================
+# ================== PARSER ==================
 def parse_page():
-    log("🔍 Parsing page")
+    log("🔍 Починаю парсинг сторінки з цінами.")
     r = requests.get(
         URL,
         timeout=25,
         proxies=get_proxy(),
         headers={"User-Agent": "Mozilla/5.0"}
     )
-    log(f"🌐 HTTP status: {r.status_code}")
+
+    log(f"🌐 Отримано відповідь від сайту (HTTP {r.status_code}).")
 
     soup = BeautifulSoup(r.text, "html.parser")
     items = {}
 
     tables = soup.find_all("table")
-    log(f"📄 Tables found: {len(tables)}")
+    log(f"📄 Знайдено {len(tables)} таблиць на сторінці.")
 
     for table in tables:
         rows = table.find_all("tr")[1:]
@@ -103,94 +90,85 @@ def parse_page():
             except:
                 continue
 
-            max_total = int(cols[3].text.strip())
-            max_left = int(cols[4].text.strip())
-            qty = max_total - max_left
+            total = int(cols[3].text.strip())
+            left = int(cols[4].text.strip())
+            qty = total - left
 
-            if qty < 1 or price < 0.010:
+            if qty < 1:
                 continue
 
             items[name] = {"price_real": price, "qty": qty}
 
-    log(f"📊 Parsed items: {len(items)}")
+    log(f"📊 Успішно пропаршено {len(items)} предметів.")
     return items
 
-# ================= STATE =================
-def load_json(path):
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            log(f"⚠ Failed to read {path}")
-    return {}
-
-def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-# ================= MAIN LOOP =================
+# ================== MAIN LOOP ==================
 def check_loop():
-    log("🧵 Parser loop started")
+    log("🧵 Фоновий потік перевірки цін запущено.")
 
-    prev_data = load_json(DATA_FILE)
-    state = load_json(STATE_FILE)
+    state = {}
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        log("ℹ️ Завантажено існуючий state.json (baseline значення).")
+    else:
+        log("ℹ️ state.json відсутній. Baseline буде створено з нуля.")
 
     while True:
-        log("🔁 New check iteration")
+        log("🔁 Починаю новий цикл перевірки.")
 
         try:
             current = parse_page()
         except Exception as e:
-            log(f"❌ Parse error: {e}")
+            log(f"❌ Помилка парсингу: {e}")
             time.sleep(CHECK_INTERVAL)
             continue
 
         for name, item in current.items():
-            price_real = item["price_real"]
-            qty = item["qty"]
-
-            price_rounded = round_price(price_real)
-            if price_rounded is None:
+            rounded = round_price(item["price_real"])
+            if rounded is None:
+                log(f"ℹ️ {name}: ціна надто мала, пропущено.")
                 continue
 
             if name not in state:
-                state[name] = {"baseline": price_rounded}
-                log(f"🆕 Baseline set: {name} = {price_rounded}")
+                state[name] = {"baseline": rounded}
+                log(f"🆕 {name}: перше виявлення. Baseline = {rounded}")
                 continue
 
             baseline = state[name]["baseline"]
-            change_percent = ((price_rounded - baseline) / baseline) * 100
-            abs_diff = price_rounded - baseline
+            diff = rounded - baseline
+            percent = diff / baseline * 100
 
-            if abs(change_percent) >= 30 and abs(abs_diff) >= 0.008:
-                msg_type = "Підвищення" if change_percent > 0 else "Падіння"
-                log(f"🚨 Significant change: {name} {baseline} → {price_rounded}")
+            if abs(percent) >= 30 and abs(diff) >= 0.008:
+                log(f"🚨 {name}: значна зміна ({baseline} → {rounded}, {percent:.2f}%).")
                 send_telegram(
-                    format_telegram_message(
-                        name, baseline, price_rounded, qty, msg_type
-                    )
+                    f"<code>{name}</code>\nЦіна: {baseline} → {rounded}\nК-сть: {item['qty']}"
                 )
-                state[name]["baseline"] = price_rounded
+                state[name]["baseline"] = rounded
+                log(f"✅ Baseline для {name} оновлено.")
+            else:
+                log(f"ℹ️ {name}: зміна {percent:.2f}% — не відповідає умовам.")
 
-        save_json(DATA_FILE, current)
-        save_json(STATE_FILE, state)
-        log("💾 data.json & state.json updated")
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2, ensure_ascii=False)
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
 
+        log("💾 Дані збережено. Очікую наступний цикл.")
         time.sleep(CHECK_INTERVAL)
 
-# ================= FLASK =================
+# ================== FLASK ==================
 app = Flask(__name__)
 
 @app.route("/")
 def home():
     return "✅ Bot is running"
 
-# ================= START =================
+# ================== START ==================
 if __name__ == "__main__":
-    log("🚀 Service started")
+    log("🚀 Сервіс запущено. Початок ініціалізації.")
     threading.Thread(target=check_loop, daemon=True).start()
-    log("🧵 Background parser thread started")
+    log("🧵 Фоновий потік успішно запущено.")
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
