@@ -7,9 +7,7 @@ import threading
 import os
 from datetime import datetime
 
-# ==================================================
-# CONFIG
-# ==================================================
+# ================= CONFIG =================
 URL = "https://price.csgetto.love/"
 CHECK_INTERVAL = 25
 
@@ -36,16 +34,12 @@ PROXY_LIST = [
 
 last_html_table = "<h2>Немає даних...</h2>"
 
-# ==================================================
-# LOGGING
-# ==================================================
+# ================= LOG =================
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] {msg}", flush=True)
 
-# ==================================================
-# TELEGRAM
-# ==================================================
+# ================= TELEGRAM =================
 def send_telegram(text):
     try:
         requests.post(
@@ -54,37 +48,21 @@ def send_telegram(text):
             timeout=15
         )
     except Exception as e:
-        log(f"❌ Telegram error: {e}")
+        log(f"Telegram error: {e}")
 
-def format_telegram_message(name, old_price, new_price, qty, type_msg):
-    return (
-        f"<code>{name}</code>\n"
-        f"{type_msg} ціни: {old_price} → {new_price}\n"
-        f"Кількість: {qty}"
-    )
-
-# ==================================================
-# PRICE ROUND (ORIGINAL)
-# ==================================================
+# ================= ROUND =================
 def round_price(p):
     if p < 0.009:
         return None
-    p_times_1000 = int(round(p * 1000))
-    last_digit = p_times_1000 % 10
-    base = (p_times_1000 // 10) * 10
-    if last_digit >= 9:
+    p1000 = int(round(p * 1000))
+    base = (p1000 // 10) * 10
+    if p1000 % 10 >= 9:
         base += 10
-    return base / 1000.0
+    return base / 1000
 
-# ==================================================
-# PARSER WITH PROXY FALLBACK
-# ==================================================
+# ================= PARSER =================
 def parse_page():
-    last_error = None
-
-    for idx, proxy in enumerate(PROXY_LIST, start=1):
-        log(f"🌍 [{idx}/{len(PROXY_LIST)}] Пробую проксі")
-
+    for proxy in PROXY_LIST:
         try:
             r = requests.get(
                 URL,
@@ -92,19 +70,14 @@ def parse_page():
                 proxies={"http": proxy, "https": proxy},
                 headers={"User-Agent": "Mozilla/5.0"}
             )
-
             if r.status_code != 200:
-                last_error = f"HTTP {r.status_code}"
                 continue
 
             soup = BeautifulSoup(r.text, "html.parser")
             items = {}
 
-            tables = soup.find_all("table")
-
-            for table in tables:
-                rows = table.find_all("tr")[1:]
-                for row in rows:
+            for table in soup.find_all("table"):
+                for row in table.find_all("tr")[1:]:
                     cols = row.find_all("td")
                     if len(cols) < 5:
                         continue
@@ -115,31 +88,23 @@ def parse_page():
                     except:
                         continue
 
-                    max_total = int(cols[3].text.strip())
-                    max_left = int(cols[4].text.strip())
-                    qty = max_total - max_left
+                    total = int(cols[3].text.strip())
+                    left = int(cols[4].text.strip())
+                    qty = total - left
 
                     if qty < 1 or price < 0.010:
                         continue
 
                     items[name] = {"price_real": price, "qty": qty}
 
-            log(f"✅ Парсинг успішний. Предметів: {len(items)}")
             return items
+        except:
+            continue
 
-        except Exception as e:
-            last_error = str(e)
-            log(f"❌ Проксі не підійшов: {e}")
+    raise Exception("Жоден проксі не спрацював")
 
-    raise Exception(f"❌ Жоден проксі не спрацював: {last_error}")
-
-# ==================================================
-# HTML TABLE (ORIGINAL LOGIC)
-# ==================================================
+# ================= TABLE =================
 def build_html_table(changes):
-    if not changes:
-        return "<h2>Змін не знайдено.</h2>"
-
     non_zero = [c for c in changes if float(c["diff"]) != 0]
     zero = [c for c in changes if float(c["diff"]) == 0]
 
@@ -156,7 +121,6 @@ def build_html_table(changes):
             <th>Зміна (%)</th>
         </tr>
     """
-
     for c in sorted_changes:
         html += f"""
         <tr>
@@ -166,13 +130,10 @@ def build_html_table(changes):
             <td>{c['diff']}%</td>
         </tr>
         """
-
     html += "</table>"
     return html
 
-# ==================================================
-# MAIN LOOP (ORIGINAL LOGIC)
-# ==================================================
+# ================= MAIN LOOP =================
 def check_loop():
     global last_html_table
 
@@ -187,56 +148,48 @@ def check_loop():
             state = json.load(f)
 
     while True:
-        log("🔁 Починаю новий цикл перевірки")
-
-        try:
-            current = parse_page()
-        except Exception as e:
-            log(f"❌ Парсинг не вдався: {e}")
-            time.sleep(CHECK_INTERVAL)
-            continue
-
+        current = parse_page()
         changes = []
 
         for name, item in current.items():
             price_real = item["price_real"]
             qty = item["qty"]
 
-            price_rounded = round_price(price_real)
-            if price_rounded is None:
-                continue
+            # ---------- BASELINE / TELEGRAM ----------
+            rounded = round_price(price_real)
+            if rounded is not None:
+                if name not in state:
+                    state[name] = {"baseline": rounded}
+                else:
+                    baseline = state[name]["baseline"]
+                    diff = rounded - baseline
+                    change_percent = (diff / baseline) * 100
 
-            if name not in state:
-                state[name] = {"baseline": price_rounded}
-                continue
+                    if change_percent >= 25 or change_percent <= -50:
+                        send_telegram(
+                            f"<code>{name}</code>\n"
+                            f"Ціна: {baseline} → {rounded}\n"
+                            f"Зміна: {change_percent:.2f}%\n"
+                            f"К-сть: {qty}"
+                        )
+                        state[name]["baseline"] = rounded
 
-            baseline = state[name]["baseline"]
-            change_percent = ((price_rounded - baseline) / baseline) * 100
-            abs_diff = price_rounded - baseline
-
-            if abs(change_percent) >= 30 and abs(abs_diff) >= 0.008:
-                msg_type = "Підвищення" if change_percent > 0 else "Падіння"
-                send_telegram(
-                    format_telegram_message(
-                        name, baseline, price_rounded, qty, msg_type
-                    )
-                )
-                state[name]["baseline"] = price_rounded
-
-            # --- TABLE LOGIC (ORIGINAL) ---
+            # ---------- TABLE ----------
             if name in prev_data:
                 old_price = prev_data[name]["price_real"]
                 diff_percent = (
                     ((price_real - old_price) / old_price) * 100
                     if old_price > 0 else 0
                 )
+            else:
+                diff_percent = 0.0
 
-                changes.append({
-                    "name": name,
-                    "price_real": price_real,
-                    "qty": qty,
-                    "diff": f"{diff_percent:.2f}"
-                })
+            changes.append({
+                "name": name,
+                "price_real": price_real,
+                "qty": qty,
+                "diff": f"{diff_percent:.2f}"
+            })
 
         last_html_table = build_html_table(changes)
 
@@ -247,13 +200,9 @@ def check_loop():
             json.dump(state, f, indent=2, ensure_ascii=False)
 
         prev_data = current
-        log("💾 Дані оновлено, очікую наступний цикл")
-
         time.sleep(CHECK_INTERVAL)
 
-# ==================================================
-# FLASK WEB
-# ==================================================
+# ================= FLASK =================
 app = Flask(__name__)
 
 @app.route("/")
@@ -262,18 +211,17 @@ def home():
     <html>
     <head>
         <meta charset="utf-8">
-        <title>CSGETTO</title>
         <script>
-            async function reloadTable() {{
+            async function reload() {{
                 const r = await fetch('/table');
-                document.getElementById('table').innerHTML = await r.text();
+                document.getElementById('t').innerHTML = await r.text();
             }}
-            setInterval(reloadTable, 30000);
-            window.onload = reloadTable;
+            setInterval(reload, 30000);
+            window.onload = reload;
         </script>
     </head>
     <body>
-        <div id="table">{last_html_table}</div>
+        <div id="t">{last_html_table}</div>
     </body>
     </html>
     """
@@ -282,10 +230,7 @@ def home():
 def table():
     return last_html_table
 
-# ==================================================
-# START
-# ==================================================
+# ================= START =================
 if __name__ == "__main__":
-    log("🚀 Сервіс запущено")
     threading.Thread(target=check_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT)
