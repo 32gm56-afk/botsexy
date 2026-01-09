@@ -11,7 +11,7 @@ from datetime import datetime
 # CONFIG
 # ==================================================
 URL = "https://price.csgetto.love/"
-CHECK_INTERVAL = 35
+CHECK_INTERVAL = 25
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
