@@ -5,7 +5,6 @@ import time
 from flask import Flask
 import threading
 import os
-import random
 from datetime import datetime
 
 # ==================================================
@@ -26,10 +25,17 @@ PROXY_LIST = [
     "http://zlkvzpye-1:lttxslpl8y49@p.webshare.io:80",
     "http://zlkvzpye-2:lttxslpl8y49@p.webshare.io:80",
     "http://zlkvzpye-3:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-4:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-5:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-6:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-7:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-8:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-9:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-10:lttxslpl8y49@p.webshare.io:80",
 ]
 
 # ==================================================
-# LOGGING (HUMAN READABLE)
+# LOGGING (HUMAN-READABLE)
 # ==================================================
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -77,57 +83,69 @@ def round_price(p):
     return base / 1000.0
 
 # ==================================================
-# PROXY
-# ==================================================
-def get_proxy():
-    proxy = random.choice(PROXY_LIST)
-    log(f"🌍 Обрано проксі для запиту: {proxy.split('@')[0]}")
-    return {"http": proxy, "https": proxy}
-
-# ==================================================
-# PARSER
+# PARSER WITH PROXY FALLBACK
 # ==================================================
 def parse_page():
     log("🔍 Починаю парсинг сайту з цінами.")
-    r = requests.get(
-        URL,
-        timeout=25,
-        proxies=get_proxy(),
-        headers={"User-Agent": "Mozilla/5.0"}
-    )
+    last_error = None
 
-    log(f"🌐 Отримано відповідь від сайту (HTTP {r.status_code}).")
+    for idx, proxy in enumerate(PROXY_LIST, start=1):
+        log(f"🌍 [{idx}/{len(PROXY_LIST)}] Пробую проксі: {proxy.split('@')[0]}")
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    items = {}
+        try:
+            r = requests.get(
+                URL,
+                timeout=20,
+                proxies={"http": proxy, "https": proxy},
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
 
-    tables = soup.find_all("table")
-    log(f"📄 Знайдено таблиць: {len(tables)}.")
+            log(f"🌐 HTTP статус: {r.status_code}")
 
-    for table in tables:
-        rows = table.find_all("tr")[1:]
-        for row in rows:
-            cols = row.find_all("td")
-            if len(cols) < 5:
+            if r.status_code != 200:
+                last_error = f"HTTP {r.status_code}"
+                log("⚠️ Статус не 200 — пробую наступний проксі.")
                 continue
 
-            name = cols[0].text.strip()
-            try:
-                price = float(cols[1].text.strip())
-            except:
-                continue
+            soup = BeautifulSoup(r.text, "html.parser")
+            items = {}
 
-            max_total = int(cols[3].text.strip())
-            max_left = int(cols[4].text.strip())
-            qty = max_total - max_left
+            tables = soup.find_all("table")
+            log(f"📄 Знайдено таблиць: {len(tables)}.")
 
-            if qty < 1 or price < 0.010:
-                continue
+            for table in tables:
+                rows = table.find_all("tr")[1:]
+                for row in rows:
+                    cols = row.find_all("td")
+                    if len(cols) < 5:
+                        continue
 
-            items[name] = {"price_real": price, "qty": qty}
+                    name = cols[0].text.strip()
+                    try:
+                        price = float(cols[1].text.strip())
+                    except:
+                        continue
 
-    log(f"📊 Успішно пропарсено предметів: {len(items)}.")
-    return items
+                    max_total = int(cols[3].text.strip())
+                    max_left = int(cols[4].text.strip())
+                    qty = max_total - max_left
+
+                    if qty < 1 or price < 0.010:
+                        continue
+
+                    items[name] = {"price_real": price, "qty": qty}
+
+            log(
+                f"✅ Парсинг успішний через проксі #{idx}. "
+                f"Пропаршено предметів: {len(items)}."
+            )
+            return items
+
+        except Exception as e:
+            last_error = str(e)
+            log(f"❌ Проксі #{idx} не підійшов: {e}")
+
+    raise Exception(f"❌ ЖОДЕН ПРОКСІ НЕ СПРАЦЮВАВ. Остання помилка: {last_error}")
 
 # ==================================================
 # STATE LOAD / SAVE
@@ -160,7 +178,7 @@ def check_loop():
         try:
             current = parse_page()
         except Exception as e:
-            log(f"❌ Помилка парсингу: {e}")
+            log(f"❌ Парсинг повністю провалився: {e}")
             time.sleep(CHECK_INTERVAL)
             continue
 
@@ -170,7 +188,7 @@ def check_loop():
 
             price_rounded = round_price(price_real)
             if price_rounded is None:
-                log(f"ℹ️ {name}: ціна надто мала, пропущено.")
+                log(f"ℹ️ {name}: ціна надто мала — пропущено.")
                 continue
 
             if name not in state:
