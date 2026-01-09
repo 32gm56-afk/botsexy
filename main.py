@@ -28,6 +28,19 @@ PROXIES = {
 
 last_html_table = "<h2>Немає даних...</h2>"
 
+PROXY_LIST = [
+    "http://zlkvzpye-1:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-2:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-3:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-4:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-5:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-6:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-7:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-8:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-9:lttxslpl8y49@p.webshare.io:80",
+    "http://zlkvzpye-10:lttxslpl8y49@p.webshare.io:80",
+]
+
 # -------------------------------
 # Telegram
 # -------------------------------
