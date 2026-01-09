@@ -41,6 +41,15 @@ PROXY_LIST = [
     "http://zlkvzpye-10:lttxslpl8y49@p.webshare.io:80",
 ]
 
+import random
+
+def get_proxy():
+    proxy = random.choice(PROXY_LIST)
+    return {
+        "http": proxy,
+        "https": proxy
+    }
+
 # -------------------------------
 # Telegram
 # -------------------------------
