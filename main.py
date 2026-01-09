@@ -9,7 +9,7 @@ from datetime import datetime
 
 # ================= CONFIG =================
 URL = "https://price.csgetto.love/"
-CHECK_INTERVAL = 15
+CHECK_INTERVAL = 22
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
@@ -66,7 +66,7 @@ def parse_page():
         try:
             r = requests.get(
                 URL,
-                timeout=20,
+                timeout=(5, 10),
                 proxies={"http": proxy, "https": proxy},
                 headers={"User-Agent": "Mozilla/5.0"}
             )
