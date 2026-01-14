@@ -14,8 +14,8 @@ from datetime import datetime
 URL = "https://price.csgetto.gold/"
 CHECK_INTERVAL = 25
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+BOT_TOKEN = os.environ.get("8099862855:AAE95732qViUeIwVYe6ukNB5NRsDfuPHzNI")
+CHAT_ID = os.environ.get("-4840038262")
 
 DATA_FILE = "data.json"
 STATE_FILE = "state.json"
